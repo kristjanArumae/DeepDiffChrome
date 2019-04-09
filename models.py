@@ -9,6 +9,12 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 import numpy as np
 
+import copy
+
+from transformer import TransfromerEncoder, EncoderLayer, MultiAttn
+from nn_func import FeedForward, Position, Pooler
+
+
 def batch_product(iput, mat2):
 		result = None
 		for i in range(iput.size()[0]):
@@ -67,12 +73,37 @@ class recurrent_encoder(nn.Module):
 		self.bin_attention=rec_attention(hm,args)
 	def outputlength(self):
 		return self.bin_rep_size
-	def forward(self,single_hm,hidden=None):
+	def forward(self,single_hm,hidden=None, mask=None):
 
 		bin_output, hidden = self.rnn(single_hm,hidden)
 		bin_output = bin_output.permute(1,0,2)
 		hm_rep,bin_alpha = self.bin_attention(bin_output)
 		return hm_rep,bin_alpha
+
+
+class TransformerEnc(nn.Module):
+	def __init__(self, n_bins, ip_bin_size, hm, args):
+		super(TransformerEnc, self).__init__()
+		self.model_n_dim = args.bin_rnn_size
+
+		self.attn  = MultiAttn(args.num_heads, self.model_n_dim)
+		self.ff = FeedForward(self.model_n_dim, args.dff, args.dropout)
+		self.posit = Position(self.model_n_dim, args.dropout, n_bins)
+		self.enc = EncoderLayer(self.model_n_dim, self.attn, self.ff, args.dropout)
+
+		self.transformer = TransfromerEncoder(args.num_t, self.enc)
+		self.linear = nn.Linear(1,args.bin_rnn_size)
+		self.pooler = Pooler(args.bin_rnn_size)
+
+	def forward(self, single_hm, mask):
+		l_o = self.linear(single_hm.transpose(0, 1))
+		t_o, attn = self.transformer(l_o, mask)
+
+		return self.pooler(t_o).unsqueeze(1), attn
+
+	def outputlength(self):
+		return self.model_n_dim
+
 
 class raw_d(nn.Module):
 	def __init__(self,args):
@@ -80,16 +111,26 @@ class raw_d(nn.Module):
 		self.n_bins=args.n_bins
 		self.ip_bin_size=1
 		super(raw_d,self).__init__()
-		self.rnn_hms=nn.ModuleList()
-		for i in range(self.n_hms):
-			self.rnn_hms.append(recurrent_encoder(self.n_bins,self.ip_bin_size,False,args))
-		self.opsize = self.rnn_hms[0].outputlength()
-		self.hm_level_rnn_1=recurrent_encoder(self.n_hms,self.opsize,True,args)
-		self.opsize2=self.hm_level_rnn_1.outputlength()
-		self.diffopsize=2*(self.opsize2)
-		self.fdiff1_1=nn.Linear(self.opsize2,1)
 
-	def forward(self,iput1,iput2):
+		self.rnn_hms = nn.ModuleList()
+		if args.transformer is None:
+			for i in range(self.n_hms):
+				self.rnn_hms.append(recurrent_encoder(self.n_bins,self.ip_bin_size,False,args))
+
+			self.opsize = self.rnn_hms[0].outputlength()
+		else:
+			for i in range(self.n_hms):
+				self.rnn_hms.append(TransformerEnc(self.n_bins,self.ip_bin_size,False,args))
+
+			self.opsize = args.bin_rnn_size * 2
+
+		self.hm_level_rnn_1 = recurrent_encoder(self.n_hms, self.opsize, True, args)
+		self.opsize2 = self.hm_level_rnn_1.outputlength()
+
+		self.diffopsize = 2 * (self.opsize2)
+		self.fdiff1_1 = nn.Linear(self.opsize2, 1)
+
+	def forward(self, iput1, iput2, mask=None):
 
 		iput=iput1-iput2
 		bin_a=None
@@ -100,17 +141,19 @@ class raw_d(nn.Module):
 			hmod=iput[:,:,hm].contiguous()
 			hmod=torch.t(hmod).unsqueeze(2)
 
-			op,a= hm_encdr(hmod)
-			if level1_rep is None:
+			op,a= hm_encdr(hmod, mask)
+			if level1_rep is None: # 10, 200 10,1,64
 				level1_rep=op
 				bin_a=a
 			else:
 				level1_rep=torch.cat((level1_rep,op),1)
 				bin_a=torch.cat((bin_a,a),1)
+
 		level1_rep=level1_rep.permute(1,0,2)
 		final_rep_1,hm_level_attention_1=self.hm_level_rnn_1(level1_rep)
 		final_rep_1=final_rep_1.squeeze(1)
 		prediction_m=((self.fdiff1_1(final_rep_1)))
+
 		return prediction_m,hm_level_attention_1, bin_a
 
 

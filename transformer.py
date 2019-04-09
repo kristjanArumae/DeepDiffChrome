@@ -2,6 +2,7 @@ from torch import nn
 import torch
 
 from util import create_n_layers
+from nn_func import attn
 
 
 class EncoderLayer(nn.Module):
@@ -14,8 +15,10 @@ class EncoderLayer(nn.Module):
         self.n_dim = n_dim
 
     def forward(self, inpt, mask):
-        inpt = self.layer_ls[0](inpt, lambda inpt: self.attn(inpt, inpt, inpt, mask))
-        return self.layer_ls[1](inpt, self.ff)
+        inpt, attn = self.layer_ls[0](inpt, lambda inpt: self.attn(inpt, inpt, inpt, mask))
+        outpt, _ = self.layer_ls[1](inpt, self.ff)
+
+        return outpt, attn
 
 
 class TransfromerEncoder(nn.Module):
@@ -26,13 +29,15 @@ class TransfromerEncoder(nn.Module):
         super(TransfromerEncoder, self).__init__()
 
         self.layer_ls = create_n_layers(layer, num_layers)
-        self.norm = Norm(layer.size)
+        self.norm = Norm(layer.n_dim)
 
     def forward(self, inpt, mask):
-        for l in self.layer_ls:
-            inpt = l(inpt, mask)
+        attn = None
 
-        return self.norm(inpt)
+        for l in self.layer_ls:
+            inpt, attn = l(inpt, mask)
+
+        return self.norm(inpt), attn
 
 
 class MultiAttn(nn.Module):
@@ -58,7 +63,7 @@ class MultiAttn(nn.Module):
 
         x = x.transpose(1, 2).contiguous().view(n_b, -1, self.num_heads * self.d_k)
 
-        return self.linear_ls[3](x)
+        return self.linear_ls[3](x), self.attn
 
 
 class Norm(nn.Module):
@@ -89,4 +94,5 @@ class Residual(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inpt, l):
-        return inpt + self.dropout(l(self.norm(inpt)))
+        o, a = l(self.norm(inpt))
+        return inpt + self.dropout(o), a

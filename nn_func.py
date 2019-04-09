@@ -8,8 +8,8 @@ class Position(nn.Module):
         super(Position, self).__init__()
 
         positional_encoding = torch.zeros(max_len, n_dim)
-        posit = torch.arange(0, max_len).unsqueeze(1)
-        denominator = torch.exp(torch.arange(0, n_dim, 2) * -(math.log(1e5) / n_dim))
+        posit = torch.arange(0., max_len).unsqueeze(1)
+        denominator = torch.exp(torch.arange(0., n_dim, 2) * -(math.log(1e5) / n_dim))
 
         positional_encoding[:, 0::2] = torch.sin(posit * denominator)
         positional_encoding[:, 1::2] = torch.cos(posit * denominator)
@@ -24,7 +24,7 @@ class Position(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, n_dim, features, dropout=0.5):
+    def __init__(self, n_dim, features, dropout):
         super(FeedForward, self).__init__()
 
         self.w1 = nn.Linear(n_dim, features)
@@ -33,7 +33,22 @@ class FeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inpt):
-        return self.w2(self.dropout(torch.nn.functional.relu(self.w1(inpt))))
+        return self.w2(self.dropout(torch.nn.functional.relu(self.w1(inpt)))), None
+
+
+class Pooler(nn.Module):
+    def __init__(self, n_dim):
+        super(Pooler, self).__init__()
+
+        self.dense = nn.Linear(n_dim, 2 * n_dim)
+        self.activation = nn.Tanh()
+
+    def forward(self, hidden_states):
+        first_token_tensor = hidden_states[:, 0]
+        pooled_output = self.dense(first_token_tensor)
+        pooled_output = self.activation(pooled_output)
+
+        return pooled_output
 
 
 def attn(q, k, v, mask, dropout):

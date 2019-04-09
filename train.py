@@ -42,6 +42,11 @@ parser.add_argument('--unidirectional', action='store_true', help='bidirectional
 parser.add_argument('--save_attention_maps',action='store_true', help='set to save validation beta attention maps')
 parser.add_argument('--attentionfilename', type=str, default='beta_attention.txt', help='where to save attnetion maps')
 parser.add_argument('--test_on_saved_model',action='store_true', help='only test on saved model')
+
+parser.add_argument('--transformer', type=str, default="true", help='Use Transformer encoder')
+parser.add_argument('--num_heads', type=int, default=1, help='num heads')
+parser.add_argument('--num_t', type=int, default=1, help='num transformers')
+parser.add_argument('--dff', type=int, default=32, help='')
 args = parser.parse_args()
 
 torch.manual_seed(1)
@@ -58,7 +63,7 @@ model_name+=args.model_name
 
 args.bidirectional=not args.unidirectional
 
-print('the model name: ',model_name)
+print('the model name: ', model_name)
 args.data_root+=''
 args.save_root+=''
 args.dataset=args.cell_1+('_')+args.cell_2
@@ -140,27 +145,6 @@ def train(TrainData):
 	# initialize attention
 	diff_targets = torch.zeros(TrainData.dataset.__len__(),1)
 	diff_predictions = torch.zeros(diff_targets.size(0),1)
-	if(args.model_name=='raw_d'):
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),args.n_hms)
-	elif(args.model_name=='raw_c'):
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(2*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),2*args.n_hms)
-	elif(args.model_name=='raw'):
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(3*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),3*args.n_hms)
-
-	elif(args.model_name=='aux' or args.model_name=='aux_siamese'):
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(2*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),2*args.n_hms)
-
-	elif(args.model_name=='raw_aux' or args.model_name=='raw_aux_siamese'):
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(3*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),5*args.n_hms)
-
-	else:
-		all_attention_bin=torch.zeros(TrainData.dataset.__len__(),(args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(TrainData.dataset.__len__(),args.n_hms)
 
 	num_batches = int(math.ceil(TrainData.dataset.__len__()/float(args.batch_size)))
 	all_gene_ids=[None]*TrainData.dataset.__len__()
@@ -198,14 +182,14 @@ def train(TrainData):
 		if(AUX==False):
 			# for raw models: raw_d, raw_c, raw
 			batch_diff_predictions,batch_beta,batch_alpha = model(inputs_1.type(dtype),inputs_2.type(dtype))
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 		elif(CON==False):
 			# for aux models
 			batch_diff_predictions,batch_beta,batch_alpha,batch_diff_predictions_c1,batch_diff_predictions_c2 = model(inputs_1.type(dtype),inputs_2.type(dtype))
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c1,batch_diff_targets_c1.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c2,batch_diff_targets_c2.type(dtype))
@@ -213,8 +197,8 @@ def train(TrainData):
 			# for aux and siamese models
 			batch_diff_predictions,batch_beta,batch_alpha,embedding_1,embedding_2,batch_diff_predictions_c1,batch_diff_predictions_c2 = model(inputs_1.type(dtype),inputs_2.type(dtype))
 
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c1,batch_diff_targets_c1.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c2,batch_diff_targets_c2.type(dtype))
@@ -226,7 +210,7 @@ def train(TrainData):
 		torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
 		optimizer.step()
 	per_epoch_loss=per_epoch_loss/num_batches
-	return diff_predictions,diff_targets,all_attention_bin,all_attention_hm,per_epoch_loss,all_gene_ids
+	return diff_predictions, diff_targets, None, None, per_epoch_loss, all_gene_ids
 
 
 
@@ -235,24 +219,6 @@ def test(ValidData):
 
 	diff_targets = torch.zeros(ValidData.dataset.__len__(),1)
 	diff_predictions = torch.zeros(diff_targets.size(0),1)
-	if(args.model_name=='raw_d'):
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),args.n_hms)
-	elif(args.model_name=='raw_c'):
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(2*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),2*args.n_hms)
-	elif(args.model_name=='raw'):
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(3*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),3*args.n_hms)
-	elif(args.model_name=='aux' or args.model_name=='aux_siamese'):
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(2*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),2*args.n_hms)
-	elif(args.model_name=='raw_aux' or args.model_name=='raw_aux_siamese'):
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(3*args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),5*args.n_hms)
-	else:
-		all_attention_bin=torch.zeros(ValidData.dataset.__len__(),(args.n_hms*args.n_bins))
-		all_attention_hm=torch.zeros(ValidData.dataset.__len__(),args.n_hms)
 
 	num_batches = int(math.ceil(ValidData.dataset.__len__()/float(args.batch_size)))
 	all_gene_ids=[None]*ValidData.dataset.__len__()
@@ -290,14 +256,14 @@ def test(ValidData):
 		if(AUX==False):
 			# for raw models: raw_d, raw_c, raw
 			batch_diff_predictions,batch_beta,batch_alpha = model(inputs_1.type(dtype),inputs_2.type(dtype))
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 		elif(CON==False):
 			# for aux models
 			batch_diff_predictions,batch_beta,batch_alpha,batch_diff_predictions_c1,batch_diff_predictions_c2 = model(inputs_1.type(dtype),inputs_2.type(dtype))
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c1,batch_diff_targets_c1.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c2,batch_diff_targets_c2.type(dtype))
@@ -305,8 +271,8 @@ def test(ValidData):
 			# for aux and siamese models
 			batch_diff_predictions,batch_beta,batch_alpha,embedding_1,embedding_2,batch_diff_predictions_c1,batch_diff_predictions_c2 = model(inputs_1.type(dtype),inputs_2.type(dtype))
 
-			all_attention_bin[start:end]=batch_alpha.data
-			all_attention_hm[start:end]=batch_beta.data
+			# all_attention_bin[start:end]=batch_alpha.data
+			# all_attention_hm[start:end]=batch_beta.data
 			loss = DiffLoss(batch_diff_predictions,batch_diff_targets.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c1,batch_diff_targets_c1.type(dtype))
 			loss+=AuxLoss(batch_diff_predictions_c2,batch_diff_targets_c2.type(dtype))
@@ -315,7 +281,7 @@ def test(ValidData):
 		diff_predictions[start:end] = batch_diff_predictions.data.cpu()
 		per_epoch_loss += loss.item()
 	per_epoch_loss=per_epoch_loss/num_batches
-	return diff_predictions,diff_targets,all_attention_bin,all_attention_hm,per_epoch_loss,all_gene_ids
+	return diff_predictions, diff_targets, None, None, per_epoch_loss, all_gene_ids
 
 
 
@@ -329,10 +295,10 @@ best_valid_R2=-1
 if(args.test_on_saved_model==False):
 	for epoch in range(0, args.epochs):
 		print('=---------------------------------------- Training '+str(epoch+1)+' -----------------------------------=')
-		diff_predictions,diff_targets,alpha_train,beta_train,train_loss,_ = train(Train)
-		train_MSE, train_R2 = evaluate.compute_metrics(diff_predictions,diff_targets)
-		diff_predictions,diff_targets,alpha_valid,beta_valid,valid_loss,gene_ids_valid = test(Valid)
-		valid_MSE, valid_R2 = evaluate.compute_metrics(diff_predictions,diff_targets)
+		diff_predictions, diff_targets, _, beta_train, train_loss, _ = train(Train)
+		train_MSE, train_R2 = evaluate.compute_metrics(diff_predictions, diff_targets)
+		diff_predictions, diff_targets, _, beta_valid, valid_loss, gene_ids_valid = test(Valid)
+		valid_MSE, valid_R2 = evaluate.compute_metrics(diff_predictions, diff_targets)
 
 		if(valid_R2 >= best_valid_R2):
 				# save best epoch -- models converge early
