@@ -227,35 +227,55 @@ class raw(nn.Module):
     # Model with all raw features: difference and absolute features
     def __init__(self, args):
         super(raw, self).__init__()
+
         self.n_hms = args.n_hms
         self.n_bins = args.n_bins
         self.ip_bin_size = 1
+        self.args = args
+
         self.rnn_hms = nn.ModuleList()
-        for i in range(3 * self.n_hms):
-            self.rnn_hms.append(recurrent_encoder(self.n_bins, self.ip_bin_size, False, args))
-        self.opsize = self.rnn_hms[0].outputlength()
+
+        if args.transformer is None:
+            for i in range(3 * self.n_hms):
+                self.rnn_hms.append(recurrent_encoder(self.n_bins, self.ip_bin_size, False, args))
+
+            self.opsize = self.rnn_hms[0].outputlength()
+
+        else:
+            self.rnn_hms.append(TransformerEnc(self.n_bins, self.ip_bin_size, self.n_hms * 3, args))
+
+            self.opsize = args.bin_rnn_size * 2
+
         self.hm_level_rnn_1 = recurrent_encoder(3 * self.n_hms, self.opsize, True, args)
         self.opsize2 = self.hm_level_rnn_1.outputlength()
         self.diffopsize = 2 * (self.opsize2)
         self.fdiff1_1 = nn.Linear(self.opsize2, 1)
 
-    def forward(self, iput1, iput2):
+    def forward(self, iput1, iput2, mask=None):
         iput3 = iput1 - iput2
         iput4 = torch.cat((iput1, iput2), 2)
         iput = (torch.cat((iput4, iput3), 2))
 
         bin_a = None
         level1_rep = None
-        for hm, hm_encdr in enumerate(self.rnn_hms):
-            hmod = iput[:, :, hm].contiguous()
-            hmod = torch.t(hmod).unsqueeze(2)
-            op, a = hm_encdr(hmod)
-            if level1_rep is None:
-                level1_rep = op
-                bin_a = a
-            else:
-                level1_rep = torch.cat((level1_rep, op), 1)
-                bin_a = torch.cat((bin_a, a), 1)
+
+        if self.args.transformer is None:
+
+            for hm, hm_encdr in enumerate(self.rnn_hms):
+                hmod = iput[:, :, hm].contiguous()
+                hmod = torch.t(hmod).unsqueeze(2)
+                op, a = hm_encdr(hmod)
+                if level1_rep is None:
+                    level1_rep = op
+                    bin_a = a
+                else:
+                    level1_rep = torch.cat((level1_rep, op), 1)
+                    bin_a = torch.cat((bin_a, a), 1)
+        else:
+            op, a = self.rnn_hms[0](iput, mask)
+
+            level1_rep = op
+            bin_a = a
 
         level1_rep = level1_rep.permute(1, 0, 2)
         final_rep_1, hm_level_attention_1 = self.hm_level_rnn_1(level1_rep)
