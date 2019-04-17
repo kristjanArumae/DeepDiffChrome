@@ -98,7 +98,7 @@ class TransformerEnc(nn.Module):
         self.norm = None
 
         if args.norm is not None:
-            self.norm = Norm(self.model_n_dim)
+            self.norm = Norm(hm)
 
     def forward(self, single_hm, mask):
         if self.norm is not None:
