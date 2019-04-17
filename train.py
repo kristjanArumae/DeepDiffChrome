@@ -217,7 +217,7 @@ def train(TrainData):
 
         delta = tend - tstart
 
-        delta = delta.total_seconds()
+        delta = delta.total_seconds() * 1000.0
         average_d.append(delta)
 
     print('RUNTIME', np.mean(average_d))
