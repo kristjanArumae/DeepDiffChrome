@@ -44,7 +44,7 @@ parser.add_argument('--attentionfilename', type=str, default='beta_attention.txt
 parser.add_argument('--test_on_saved_model',action='store_true', help='only test on saved model')
 
 parser.add_argument('--transformer', type=str, default="true", help='Use Transformer encoder')
-parser.add_argument('--num_heads', type=int, default=1, help='num heads')
+parser.add_argument('--num_heads', type=int, default=4, help='num heads')
 parser.add_argument('--num_t', type=int, default=1, help='num transformers')
 parser.add_argument('--dff', type=int, default=32, help='')
 args = parser.parse_args()

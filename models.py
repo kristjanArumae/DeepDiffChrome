@@ -11,7 +11,7 @@ import numpy as np
 
 import copy
 
-from transformer import TransfromerEncoder, EncoderLayer, MultiAttn
+from transformer import TransfromerEncoder, EncoderLayer, MultiAttn, Norm
 from nn_func import FeedForward, Position, Pooler
 
 
@@ -73,6 +73,7 @@ class recurrent_encoder(nn.Module):
 		self.bin_attention=rec_attention(hm,args)
 	def outputlength(self):
 		return self.bin_rep_size
+
 	def forward(self,single_hm,hidden=None, mask=None):
 
 		bin_output, hidden = self.rnn(single_hm,hidden)
@@ -92,11 +93,15 @@ class TransformerEnc(nn.Module):
 		self.enc = EncoderLayer(self.model_n_dim, self.attn, self.ff, args.dropout)
 
 		self.transformer = TransfromerEncoder(args.num_t, self.enc)
-		self.linear = nn.Linear(1,args.bin_rnn_size)
+		self.linear = nn.Linear(hm, self.model_n_dim)
 		self.pooler = Pooler(args.bin_rnn_size)
 
+		self.norm = Norm(hm)
+
 	def forward(self, single_hm, mask):
-		l_o = self.linear(single_hm.transpose(0, 1))
+		single_hm = self.norm(single_hm)
+
+		l_o = self.linear(single_hm)
 		t_o, attn = self.transformer(l_o, mask)
 
 		return self.pooler(t_o).unsqueeze(1), attn
@@ -107,20 +112,22 @@ class TransformerEnc(nn.Module):
 
 class raw_d(nn.Module):
 	def __init__(self,args):
-		self.n_hms=args.n_hms
-		self.n_bins=args.n_bins
-		self.ip_bin_size=1
 		super(raw_d,self).__init__()
 
+		self.n_hms = args.n_hms
+		self.n_bins = args.n_bins
+		self.ip_bin_size = 1
+		self.args = args
+
 		self.rnn_hms = nn.ModuleList()
+
 		if args.transformer is None:
 			for i in range(self.n_hms):
-				self.rnn_hms.append(recurrent_encoder(self.n_bins,self.ip_bin_size,False,args))
+				self.rnn_hms.append(recurrent_encoder(self.n_bins,self.ip_bin_size,self.n_hms,args))
 
 			self.opsize = self.rnn_hms[0].outputlength()
 		else:
-			for i in range(self.n_hms):
-				self.rnn_hms.append(TransformerEnc(self.n_bins,self.ip_bin_size,False,args))
+			self.rnn_hms.append(TransformerEnc(self.n_bins, self.ip_bin_size, self.n_hms, args))
 
 			self.opsize = args.bin_rnn_size * 2
 
@@ -131,23 +138,27 @@ class raw_d(nn.Module):
 		self.fdiff1_1 = nn.Linear(self.opsize2, 1)
 
 	def forward(self, iput1, iput2, mask=None):
-
 		iput=iput1-iput2
 		bin_a=None
 		level1_rep=None
-		[batch_size,_,_]=iput.size()
 
-		for hm,hm_encdr in enumerate(self.rnn_hms):
-			hmod=iput[:,:,hm].contiguous()
-			hmod=torch.t(hmod).unsqueeze(2)
+		if self.args.transformer is None:
+			for hm,hm_encdr in enumerate(self.rnn_hms):
+				hmod=iput[:,:,hm].contiguous()
+				hmod=torch.t(hmod).unsqueeze(2)
 
-			op,a= hm_encdr(hmod, mask)
-			if level1_rep is None: # 10, 200 10,1,64
-				level1_rep=op
-				bin_a=a
-			else:
-				level1_rep=torch.cat((level1_rep,op),1)
-				bin_a=torch.cat((bin_a,a),1)
+				op,a= hm_encdr(hmod, mask)
+				if level1_rep is None: # 10, 200 10,1,64
+					level1_rep=op
+					bin_a=a
+				else:
+					level1_rep=torch.cat((level1_rep,op),1)
+					bin_a=torch.cat((bin_a,a),1)
+		else:
+			op, a = self.rnn_hms[0](iput, mask)
+
+			level1_rep = op
+			bin_a = a
 
 		level1_rep=level1_rep.permute(1,0,2)
 		final_rep_1,hm_level_attention_1=self.hm_level_rnn_1(level1_rep)
