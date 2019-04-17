@@ -95,7 +95,15 @@ class TransformerEnc(nn.Module):
         self.linear = nn.Linear(hm, self.model_n_dim)
         self.pooler = Pooler(args.bin_rnn_size)
 
+        self.norm = None
+
+        if args.norm is not None:
+            self.norm = Norm(self.model_n_dim)
+
     def forward(self, single_hm, mask):
+        if self.norm is not None:
+            single_hm = self.norm(single_hm)
+
         l_o = self.linear(single_hm)
         t_o, attn = self.transformer(l_o, mask)
 
@@ -293,11 +301,17 @@ class aux(nn.Module):
         self.ip_bin_size = 1
         self.joint = False
         self.shared = False
+
+        self.args = args
+
         self.rnn_hms = nn.ModuleList()
+
         for i in range(self.n_hms):
             self.rnn_hms.append(recurrent_encoder(self.n_bins, self.ip_bin_size, False, args))
+
         self.opsize = self.rnn_hms[0].outputlength()
         self.rnn_hms2 = nn.ModuleList()
+
         for i in range(self.n_hms):
             self.rnn_hms2.append(recurrent_encoder(self.n_bins, self.ip_bin_size, False, args))
         self.hm_level_rnn_1 = recurrent_encoder(self.n_hms, self.opsize, True, args)

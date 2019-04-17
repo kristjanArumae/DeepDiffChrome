@@ -51,6 +51,8 @@ parser.add_argument('--transformer', type=str, default=None, help='Use Transform
 parser.add_argument('--num_heads', type=int, default=4, help='num heads')
 parser.add_argument('--num_t', type=int, default=1, help='num transformers')
 parser.add_argument('--dff', type=int, default=32, help='')
+parser.add_argument('--norm',type=str, default=None, help='')
+
 args = parser.parse_args()
 
 torch.manual_seed(1)
