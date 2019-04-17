@@ -22,6 +22,8 @@ import data
 import gc
 import csv
 
+from datetime import datetime
+
 parser = argparse.ArgumentParser(description='DeepDiff')
 parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
 parser.add_argument('--model_name', type=str, default='raw_c', help='DeepDiff variation')
@@ -144,7 +146,11 @@ def train(TrainData):
 
     a = len(TrainData)
 
+    average_d = []
+
     for idx, Sample in enumerate(TrainData):
+        tstart = datetime.now()
+
         if (idx % 100 == 0):
             print('TRAINING ON BATCH:', idx)
         start, end = (idx * args.batch_size), min((idx * args.batch_size) + args.batch_size,
@@ -206,6 +212,15 @@ def train(TrainData):
         loss.backward()
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
         optimizer.step()
+
+        tend = datetime.now()
+
+        delta = tend - tstart
+
+        delta = delta.total_seconds()
+        average_d.append(delta)
+
+    print('RUNTIME', np.mean(average_d))
     per_epoch_loss = per_epoch_loss / num_batches
     return diff_predictions, diff_targets, None, None, per_epoch_loss, all_gene_ids
 
