@@ -151,7 +151,7 @@ class raw_d(nn.Module):
                 hmod = torch.t(hmod).unsqueeze(2)
 
                 op, a = hm_encdr(hmod, mask)
-                if level1_rep is None:  # 10, 200 10,1,64
+                if level1_rep is None:
                     level1_rep = op
                     bin_a = a
                 else:
